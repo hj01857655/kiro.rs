@@ -18,14 +18,58 @@ const api = axios.create({
   },
 })
 
+const isDev = typeof window !== 'undefined' && window.location.hostname === 'localhost'
+
+const debugLog = (...args: unknown[]) => {
+  if (isDev) {
+    console.info('[admin-api]', ...args)
+  }
+}
+
 // 请求拦截器添加 API Key
 api.interceptors.request.use((config) => {
   const apiKey = storage.getApiKey()
   if (apiKey) {
     config.headers['x-api-key'] = apiKey
   }
+
+  debugLog('request', {
+    method: config.method,
+    baseURL: config.baseURL,
+    url: config.url,
+    hasApiKey: Boolean(apiKey),
+  })
+
   return config
 })
+
+// 响应拦截器输出状态，便于定位代理/后端问题
+api.interceptors.response.use(
+  (response) => {
+    debugLog('response', {
+      status: response.status,
+      method: response.config.method,
+      url: response.config.url,
+    })
+    return response
+  },
+  (error) => {
+    if (axios.isAxiosError(error)) {
+      debugLog('error', {
+        message: error.message,
+        code: error.code,
+        method: error.config?.method,
+        url: error.config?.url,
+        status: error.response?.status,
+        data: error.response?.data,
+      })
+    } else {
+      debugLog('error', { message: String(error) })
+    }
+
+    return Promise.reject(error)
+  }
+)
 
 // 获取所有凭据状态
 export async function getCredentials(): Promise<CredentialsStatusResponse> {
