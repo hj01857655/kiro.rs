@@ -654,7 +654,10 @@ impl MultiTokenManager {
     /// 根据负载均衡模式选择下一个凭据
     ///
     /// - priority 模式：选择优先级最高（priority 最小）的可用凭据
-    /// - balanced 模式：轮询选择可用凭据
+    /// 根据负载均衡模式选择下一个可用凭据
+    ///
+    /// - priority 模式：选择优先级最高的可用凭据（数字越小优先级越高）
+    /// - balanced 模式：自适应加权选择（结合失败次数、历史使用量、最近使用时间）
     ///
     /// # 参数
     /// - `model`: 可选的模型名称，用于过滤支持该模型的凭据（如 opus 模型需要付费订阅）
@@ -690,11 +693,43 @@ impl MultiTokenManager {
 
         match mode {
             "balanced" => {
-                // Least-Used 策略：选择成功次数最少的凭据
-                // 平局时按优先级排序（数字越小优先级越高）
-                let entry = available
-                    .iter()
-                    .min_by_key(|e| (e.success_count, e.credentials.priority))?;
+                // 自适应打分（分数越小越优先）
+                // 1) failure_count: 失败越多惩罚越高，降低再次命中概率
+                // 2) success_count: 累计成功越多，适度降权，避免长期倾斜
+                // 3) last_used_at: 最近刚用过的凭据增加冷却惩罚，减少短时间连打
+                // 4) priority: 作为最终细粒度 tie-break
+                let now = Utc::now();
+
+                let entry = available.iter().min_by_key(|e| {
+                    let failure_penalty = i64::from(e.failure_count) * 10_000;
+                    let success_penalty = (e.success_count.min(50_000) as i64) * 10;
+
+                    let recent_penalty = e
+                        .last_used_at
+                        .as_deref()
+                        .and_then(|ts| DateTime::parse_from_rfc3339(ts).ok())
+                        .map(|dt| {
+                            let age_secs = (now - dt.with_timezone(&Utc)).num_seconds().max(0);
+                            if age_secs < 10 {
+                                5_000
+                            } else if age_secs < 30 {
+                                2_000
+                            } else if age_secs < 120 {
+                                500
+                            } else {
+                                0
+                            }
+                        })
+                        .unwrap_or(0);
+
+                    let priority_bias = i64::from(e.credentials.priority) * 5;
+
+                    (
+                        failure_penalty + success_penalty + recent_penalty + priority_bias,
+                        e.credentials.priority,
+                        e.id,
+                    )
+                })?;
 
                 Some((entry.id, entry.credentials.clone()))
             }

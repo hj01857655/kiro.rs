@@ -624,13 +624,13 @@ export function Dashboard({ onLogout }: DashboardProps) {
                   清除已禁用
                 </Button>
               )}
-              <Button onClick={() => setBatchImportDialogOpen(true)} size="sm" variant="outline">
-                <Upload className="h-4 w-4 mr-2" />
-                批量导入
-              </Button>
               <Button onClick={() => setAddDialogOpen(true)} size="sm">
                 <Plus className="h-4 w-4 mr-2" />
                 添加凭据
+              </Button>
+              <Button onClick={() => setBatchImportDialogOpen(true)} size="sm" variant="outline">
+                <Upload className="h-4 w-4 mr-2" />
+                批量导入
               </Button>
             </div>
           </div>
